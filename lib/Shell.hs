@@ -2,6 +2,8 @@ module Shell (
         tmuxGetSessions
     ,   tmuxHasSession
     ,   enterTmuxSession
+    ,   killTmuxSession
+    ,   makeTmuxSession
     ,   enterCmd
     ,   reenterCmd
     ,   tmuxSafeQueryEnvVariable
@@ -12,6 +14,7 @@ import System.Process
 import System.Posix.Process (executeFile)
 import System.Exit ( ExitCode (..) )
 import Data.List( intercalate )
+import Control.Monad ( void, when )
 
 
 ---- COMMANDS AND ARGS
@@ -24,10 +27,13 @@ showEnvironment = "show-environment"
 listSessions = "list-sessions"
 newSession = "new-session"
 hasSession = "has-session"
+killSession = "kill-session"
 
 sessionFlag = "-t"
 envFlag = "-e"
-newSessionFlags = "-A -s"
+sessionNameFlag = "-s"
+attachFlag = "-A"
+noAttachFlag = "-d"
 formatFlag = "-F"
 onlySessionName = "\"#{session_name}\""
 
@@ -76,14 +82,14 @@ kvPairToTmuxSet (k,v) session_name =
 enterCmd :: String -> Colormode -> String
 enterCmd session_name colormode =
     let envFlags = unwords [ (kvPairsToEFlags . getTmuxEnv) colormode ]
-    in unwords [ tmux, newSession, envFlags, newSessionFlags, session_name ]
+    in unwords [ tmux, newSession, envFlags, attachFlag, sessionNameFlag, session_name ]
     
 reenterCmd :: String -> Colormode -> String
 reenterCmd session_name colormode =
     let 
         tmuxSets = map (`kvPairToTmuxSet` session_name) (getTmuxEnv colormode)
         setCmd = intercalate "; " tmuxSets
-        basicEnterCmd = unwords [ tmux, newSession, newSessionFlags, session_name ]
+        basicEnterCmd = unwords [ tmux, newSession, attachFlag, sessionNameFlag, session_name ]
     in unwords [ setCmd, ";", basicEnterCmd ]
 
 {- | Uses executeFile to call exec(3) and enter tmux. This will not return to
@@ -102,6 +108,22 @@ enterTmuxSession session_name = do
         [ execFlag, cmd ] -- args
         Nothing -- Environment
 
+{- | Make a TMUX session with specified name. If session already exists, do
+   nothing. -}
+makeTmuxSession :: String -> IO ()
+makeTmuxSession session_name = do
+    has_session <- tmuxHasSession session_name
+    if has_session 
+        then return ()
+        else 
+            let args = [ newSession, noAttachFlag, sessionNameFlag, session_name ]
+            in void $ tmuxMaybeHandler args
+
+killTmuxSession :: String -> IO ()
+killTmuxSession session_name =
+    let args = [ killSession, sessionNameFlag, session_name ]
+    in tmuxHasSession session_name >>= flip when ( void $ tmuxMaybeHandler args)
+
 {- | ( trim "NAME=VAL" NAME ) should reduce to Just VAL. Reduces to Nothing if
    something weird happens. -}
 trim :: String -> String -> Maybe String
@@ -113,12 +135,24 @@ trim [] _ = Nothing
 trim (e : quation) (n : ame) =
     if e == n then trim quation ame else Nothing
 
+dropLastLineBreak :: String -> String
+dropLastLineBreak = helper []
+    where
+        helper acc [] = reverse acc
+        helper acc [x] = 
+            if x == '\n'
+                then reverse acc
+                else reverse (x:acc)
+        helper acc (x:xs) = helper (x:acc) xs
+
 {- | Helper command to query the value of an environment variable. Returns
-   Nothing if lookup fails. -}
+   Nothing if lookup fails. If not in TMUX session, this will lookup the local
+   env of the most recent session first! -}
 tmuxSafeQueryEnvVariable :: String -> IO (Maybe String)
 tmuxSafeQueryEnvVariable var = do
     (ex, o, e) <- readProcessWithExitCode tmux [showEnvironment, var] []
     case ex of
-        ExitSuccess     -> return $ trim o var
+        -- we drop the last line break because o (stdout) will have an extra one.
+        ExitSuccess     -> return $ fmap dropLastLineBreak ( trim o var )
         -- if var does not exist in tmux local env. Fallback to global env.
         ExitFailure _   -> lookupEnv var 
