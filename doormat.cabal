@@ -71,6 +71,12 @@ executable doormat
     build-depends: 
         doormat
         , brick
+        , microlens
+        , microlens-mtl
+        , mtl
+        , vty
+        , vector
+        , text-zipper
 
     -- Directories containing source files.
     hs-source-dirs:   app
