@@ -10,7 +10,7 @@ build:
 	cabal build
 
 install:
-	cabal install --install-method=copy --installdir=$(OUTDIR)
+	cabal install --install-method=copy --overwrite-policy=always --installdir=$(OUTDIR)
 
 test:
 	cabal new-test --test-show-details=streaming
