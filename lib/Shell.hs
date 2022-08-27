@@ -186,9 +186,13 @@ dropLastLineBreak = helper []
    env of the most recent session first! -}
 tmuxSafeQueryEnvVariable :: String -> IO (Maybe String)
 tmuxSafeQueryEnvVariable var = do
-    (ex, o, e) <- readProcessWithExitCode tmux [showEnvironment, var] []
-    case ex of
-        -- we drop the last line break because o (stdout) will have an extra one.
-        ExitSuccess     -> return $ fmap dropLastLineBreak ( trim o var )
-        -- if var does not exist in tmux local env. Fallback to global env.
-        ExitFailure _   -> lookupEnv var
+    inTmux <- isJust <$> lookupEnv "TMUX"
+    if inTmux
+        then do
+            (ex, o, e) <- readProcessWithExitCode tmux [showEnvironment, var] []
+            case ex of
+                -- we drop the last line break because o (stdout) will have an extra one.
+                ExitSuccess     -> return $ fmap dropLastLineBreak ( trim o var )
+                -- if var does not exist in tmux local env. Fallback to global env.
+                ExitFailure _   -> lookupEnv var
+        else lookupEnv var
