@@ -11,7 +11,7 @@ import Shell
 import Lens.Micro ((^.), Lens', lens)
 import Lens.Micro.Mtl ( use, zoom )
 import Control.Monad.State (modify, liftIO, unless)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Graphics.Vty as V
 
 import qualified Brick.Focus as F
@@ -323,11 +323,16 @@ appEvent e = do
 getInitialColormode :: IO (Maybe Colormode)
 getInitialColormode = do
     res <- tmuxSafeQueryEnvVariable "INITIALDARKMODE"
-    case res of
-        Just "-1"   -> return $ Just LIGHTMODE
-        Just "0"    -> return $ Just BLUEMODE
-        Just "1"    -> return $ Just DARKMODE
-        _           -> return Nothing
+    if isJust res 
+        then return $ numberToMaybeLabel res
+        else do
+            res' <- tmuxSafeQueryEnvVariable "DARKMODE"
+            return $ numberToMaybeLabel res'
+    where
+        numberToMaybeLabel (Just "-1") = Just LIGHTMODE
+        numberToMaybeLabel (Just "0")  = Just BLUEMODE
+        numberToMaybeLabel (Just "1")  = Just DARKMODE
+        numberToMaybeLabel _           = Nothing
 
 getInitialState :: IO AppState
 getInitialState = do
