@@ -322,7 +322,7 @@ appEvent e = do
 
 getInitialColormode :: IO (Maybe Colormode)
 getInitialColormode = do
-    res <- tmuxSafeQueryEnvVariable "DARKMODE"
+    res <- tmuxSafeQueryEnvVariable "INITIALDARKMODE"
     case res of
         Just "-1"   -> return $ Just LIGHTMODE
         Just "0"    -> return $ Just BLUEMODE
