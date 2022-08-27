@@ -11,6 +11,7 @@ import Shell
 import Lens.Micro ((^.), Lens', lens)
 import Lens.Micro.Mtl ( use, zoom )
 import Control.Monad.State (modify, liftIO, unless)
+import Data.Maybe (fromMaybe)
 import qualified Graphics.Vty as V
 
 import qualified Brick.Focus as F
@@ -172,7 +173,7 @@ editorDialogHeight :: Int
 editorDialogHeight = 10
 
 defaultColormode :: Colormode
-defaultColormode = DARKMODE
+defaultColormode = BLUEMODE
 
 itemWidget :: Bool -> String -> Widget Name
 itemWidget selected x =
@@ -319,14 +320,25 @@ appEvent e = do
             liftIO $ ioError $ userError "Colormode list should never be focused!"
         Just NewSessionEditor -> sessionDialogEventHandler e
 
+getInitialColormode :: IO (Maybe Colormode)
+getInitialColormode = do
+    res <- tmuxSafeQueryEnvVariable "DARKMODE"
+    case res of
+        Just "-1"   -> return $ Just LIGHTMODE
+        Just "0"    -> return $ Just BLUEMODE
+        Just "1"    -> return $ Just DARKMODE
+        _           -> return Nothing
+
 getInitialState :: IO AppState
 getInitialState = do
     sessions <- tmuxGetSessions
+    initialColormode <- fmap (fromMaybe defaultColormode) getInitialColormode
     let colormodes = [ DARKMODE, LIGHTMODE, BLUEMODE ]
+    let colormodeList = L.list ColormodeList (Vec.fromList colormodes) 1
     return $ AppState
         { focusRing = F.focusRing [ SessionList, ColormodeList, NewSessionEditor ]
         , sessionList = L.list SessionList (Vec.fromList sessions) 1
-        , colormodeList = L.list ColormodeList (Vec.fromList colormodes) 1
+        , colormodeList = L.listMoveToElement initialColormode colormodeList 
         , newSessionEditor = E.editor NewSessionEditor Nothing ""
         , escapeToShell = False
         , editSessionVisible = False

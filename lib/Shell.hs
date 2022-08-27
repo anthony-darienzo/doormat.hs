@@ -43,7 +43,7 @@ onlySessionName = "#{session_name}"
 lang = "en_US.UTF-8"
 ----
 
-data Colormode = DARKMODE | LIGHTMODE | BLUEMODE
+data Colormode = DARKMODE | LIGHTMODE | BLUEMODE deriving (Eq)
 
 instance Show Colormode where
     show DARKMODE   = "Dark mode"
