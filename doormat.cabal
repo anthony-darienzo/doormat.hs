@@ -14,7 +14,7 @@ name:               doormat
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:            0.1.1.0
+version:            0.1.1.1
 
 -- A short (one-line) description of the package.
 synopsis:
@@ -59,10 +59,12 @@ common basics
 executable doormat
     import: basics
     -- .hs or .lhs file containing the Main module.
-    main-is:          Main.hs
+    main-is: Main.hs
 
     -- Modules included in this executable, other than Main.
-    -- other-modules:
+    other-modules:
+        Tui
+        , Titlecard
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
