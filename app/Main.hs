@@ -4,6 +4,7 @@ import System.Environment ( getArgs )
 import System.IO.Error ( mkIOError, doesNotExistErrorType)
 import Shell ( tmuxSafeQueryEnvVariable )
 import Tui ( brick )
+import Pipes ( pipesMain )
 
 printHelpDialog :: IO ()
 printHelpDialog = putStr $ unlines
@@ -30,4 +31,5 @@ main = do
         [] -> brick
         ["--help"] -> printHelpDialog
         ["--lookup", var] -> putStr =<< lookupVar var
+        ["--pipes"] -> pipesMain
         _ -> ioError $ userError $ "Invalid command \"" <> unwords args <> "\". Use flag --help for help."

@@ -1,5 +1,7 @@
 module Tui ( brick ) where
 
+import qualified Pipes as Pipe
+
 import System.IO.Error (mkIOError, doesNotExistErrorType)
 import Shell
     ( tmuxSafeQueryEnvVariable
@@ -13,12 +15,14 @@ import Titlecard (titleString)
 
 import Lens.Micro ((^.), Lens', lens)
 import Lens.Micro.Mtl ( use, zoom )
-import Control.Monad.State (modify, liftIO, unless)
+import Control.Monad.State (void, forever, modify, liftIO, unless)
+import Control.Concurrent (forkIO, threadDelay)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Graphics.Vty as V
 
 import qualified Brick.Focus as F
 import qualified Brick.Main as M
+import qualified Brick.BChan as BC
 import qualified Brick.Types as T
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.List as L
@@ -35,7 +39,7 @@ import Brick.Widgets.Core
   , hLimit
   , vBox
   , withAttr
-  )
+  , raw )
 import Brick.Util (fg, on)
 import qualified Brick.Widgets.Edit as E
 import Data.Vector.Generic.New (New(New))
@@ -68,6 +72,8 @@ appAttr = A.attrMap V.defAttr
 
 data Name = SessionList | ColormodeList | NewSessionEditor deriving (Ord, Eq, Show)
 
+data PipeTick = Tick
+
 data AppState = AppState
     { focusRing :: F.FocusRing Name
     , sessionList :: L.List Name String
@@ -75,6 +81,8 @@ data AppState = AppState
     , newSessionEditor :: E.Editor String Name
     , escapeToShell :: Bool
     , editSessionVisible :: Bool
+    , pipeImg :: V.Image
+    , pipeImgStream :: IO V.Image
     }
 
 getFocusRing :: Lens' AppState (F.FocusRing Name)
@@ -100,6 +108,14 @@ getEscapeFlag = lens escapeToShell
 getEditSessionVisible :: Lens' AppState Bool
 getEditSessionVisible = lens editSessionVisible
     (\ s e -> s { editSessionVisible = e })
+
+getPipeImg :: Lens' AppState V.Image
+getPipeImg = lens pipeImg
+    (\ s i -> s { pipeImg = i })
+
+getPipeImgStream :: Lens' AppState (IO V.Image)
+getPipeImgStream = lens pipeImgStream
+    (\ s is -> s { pipeImgStream = is })
 
 selAttr :: A.AttrName
 selAttr = L.listSelectedAttr <> A.attrName "selected"
@@ -140,16 +156,16 @@ mainUIWidget s = ui
             hLimit appWidth $
             vLimit colorHeight $
             C.hCenter $ str "< " <+> cur_color <+> str " >"
-        ui = C.vCenter $ vBox
-            [ C.hCenter $ str titleString
+        ui = C.vCenterLayer $ vBox
+            [ C.hCenterLayer $ str titleString
             , str " "
-            , C.hCenter list_box
-            , C.hCenter color_box
+            , C.hCenterLayer list_box
+            , C.hCenterLayer color_box
             , str " "
-            , C.hCenter $ str "Press Enter to attach to selected session."
-            , C.hCenter $ str "Press n to create a new session."
-            , C.hCenter $ str "Press d to delete selected session."
-            , C.hCenter $ str "Press Esc to escape to shell."
+            , C.hCenterLayer $ str "Press Enter to attach to selected session."
+            , C.hCenterLayer $ str "Press n to create a new session."
+            , C.hCenterLayer $ str "Press d to delete selected session."
+            , C.hCenterLayer $ str "Press Esc to escape to shell."
             ]
 
 editorTextWidget :: [String] -> Widget Name
@@ -163,7 +179,7 @@ newSessionWidget s = ui
             vLimit editorTextHeight $
             F.withFocusRing (s^.getFocusRing) (E.renderEditor editorTextWidget) (s^.getNewSessionEditor)
 
-        ui = C.center $
+        ui = C.centerLayer $
             hLimit appWidth $
             vLimit editorDialogHeight$
             vBox
@@ -176,6 +192,8 @@ newSessionWidget s = ui
 drawUI :: AppState -> [Widget Name]
 drawUI s = ( [ newSessionWidget s | editSessionVisible s ] )
     <> [ mainUIWidget s ]
+    <> [ raw $ pipeImg s ]
+    
 
 mainEventHandler :: T.BrickEvent Name e -> T.EventM Name AppState ()
 mainEventHandler (T.VtyEvent e) =
@@ -242,17 +260,6 @@ sessionDialogEventHandler (T.VtyEvent (V.EvKey V.KEsc [])) = do
 
 sessionDialogEventHandler ev = zoom getNewSessionEditor (E.handleEditorEvent ev)
 
-appEvent :: T.BrickEvent Name e -> T.EventM Name AppState ()
-appEvent e = do
-    s <- T.get
-    let f = s ^. getFocusRing
-    case F.focusGetCurrent f of
-        Nothing -> return ()
-        Just SessionList -> mainEventHandler e
-        Just ColormodeList ->
-            liftIO $ ioError $ userError "Colormode list should never be focused!"
-        Just NewSessionEditor -> sessionDialogEventHandler e
-
 getInitialColormode :: IO (Maybe Colormode)
 getInitialColormode = do
     res <- tmuxSafeQueryEnvVariable "INITIALDARKMODE"
@@ -278,21 +285,60 @@ getInitialState = do
         , newSessionEditor = E.editor NewSessionEditor Nothing ""
         , escapeToShell = False
         , editSessionVisible = False
-        }
+        , pipeImg = V.emptyImage 
+        , pipeImgStream = pure V.emptyImage }
 
-app :: M.App AppState e Name
+createPipeImgStream :: T.EventM Name AppState (IO V.Image)
+createPipeImgStream = do
+    vty <- M.getVtyHandle
+    let iface = V.outputIface vty
+    dbounds <- liftIO $ V.displayBounds iface
+    imgStream <- liftIO $ Pipe.randomPipeStream dbounds
+    return imgStream
+
+appEvent :: T.BrickEvent Name PipeTick -> T.EventM Name AppState ()
+appEvent e = do
+    s <- T.get
+    case e of
+        T.AppEvent Tick -> do
+            let is = s ^. getPipeImgStream
+            zoom getPipeImg $ do
+                new_img <- liftIO is
+                T.put new_img
+        _ -> do
+            let f = s ^. getFocusRing
+            case F.focusGetCurrent f of
+                Nothing -> return ()
+                Just SessionList -> mainEventHandler e
+                Just ColormodeList ->
+                    liftIO $ ioError $ userError "Colormode list should never be focused!"
+                Just NewSessionEditor -> sessionDialogEventHandler e
+
+startEvent :: T.EventM Name AppState ()
+startEvent = do
+    imgStream <- createPipeImgStream    
+    zoom getPipeImgStream $ do
+        T.put imgStream
+
+app :: M.App AppState PipeTick Name
 app =
     M.App   { M.appDraw = drawUI
             , M.appChooseCursor = M.showFirstCursor
             , M.appHandleEvent = appEvent
-            , M.appStartEvent = return ()
+            , M.appStartEvent = startEvent
             , M.appAttrMap = const appAttr
             }
 
 brick :: IO ()
 brick = do
     initialState <- getInitialState
-    finalState <- M.defaultMain app initialState
+    chan <- BC.newBChan 10
+    void . forkIO $ forever $ do
+        BC.writeBChan chan Tick
+        threadDelay Pipe.tickrate
+    let vtyBuilder = V.mkVty V.defaultConfig
+    vty <- vtyBuilder
+    finalState <- M.customMain vty vtyBuilder (Just chan) app initialState
     if escapeToShell finalState
         then ioError $ userError "Escaped to shell."
         else do
