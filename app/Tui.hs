@@ -179,7 +179,7 @@ newSessionWidget s = ui
             vLimit editorTextHeight $
             F.withFocusRing (s^.getFocusRing) (E.renderEditor editorTextWidget) (s^.getNewSessionEditor)
 
-        ui = C.centerLayer $
+        ui = C.center $
             hLimit appWidth $
             vLimit editorDialogHeight$
             vBox
