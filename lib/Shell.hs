@@ -7,6 +7,7 @@ module Shell (
     ,   enterCmd
     ,   reenterCmd
     ,   tmuxSafeQueryEnvVariable
+    ,   moshStartServerGrabResponse
     ,   Colormode (..)
 ) where
 
@@ -41,6 +42,8 @@ formatFlag = "-F"
 onlySessionName = "#{session_name}"
 
 lang = "en_US.UTF-8"
+
+mosh_start = "mosh-server"
 ----
 
 data Colormode = DARKMODE | LIGHTMODE | BLUEMODE deriving (Eq)
@@ -196,3 +199,10 @@ tmuxSafeQueryEnvVariable var = do
                 -- if var does not exist in tmux local env. Fallback to global env.
                 ExitFailure _   -> lookupEnv var
         else lookupEnv var
+
+moshStartServerGrabResponse :: IO (ExitCode, Maybe String)
+moshStartServerGrabResponse = do
+  (ex, o, e) <- readProcessWithExitCode mosh_start [] [] --no args or input
+  case ex of
+    ExitSuccess -> return $ (ex, Just o)
+    ExitFailure _ -> return $ (ex, Nothing)

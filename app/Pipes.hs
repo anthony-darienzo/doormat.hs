@@ -9,6 +9,7 @@ module Pipes
 
 import Graphics.Vty
 import Graphics.Vty.Image
+import Graphics.Vty.Platform.Unix (mkVty)
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
@@ -170,7 +171,7 @@ randomPipeStream dbounds = do
 
 pipesMain :: IO ()
 pipesMain = do
-    cfg <- standardIOConfig
+    cfg <- userConfig
     vty <- mkVty cfg
     let iface = outputIface vty
     dbounds <- displayBounds iface -- (w,h)

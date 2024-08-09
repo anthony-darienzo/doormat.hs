@@ -20,6 +20,8 @@ import Control.Concurrent (forkIO, threadDelay)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Graphics.Vty as V
 
+import Graphics.Vty.Platform.Unix (mkVty)
+
 import qualified Brick.Focus as F
 import qualified Brick.Main as M
 import qualified Brick.BChan as BC
@@ -336,7 +338,7 @@ brick = do
     void . forkIO $ forever $ do
         BC.writeBChan chan Tick
         threadDelay Pipe.tickrate
-    let vtyBuilder = V.mkVty V.defaultConfig
+    let vtyBuilder = mkVty V.defaultConfig
     vty <- vtyBuilder
     finalState <- M.customMain vty vtyBuilder (Just chan) app initialState
     if escapeToShell finalState
